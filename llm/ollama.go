@@ -12,38 +12,37 @@ import (
 	"strings"
 )
 
-// OllamaProvider implements Provider using a local Ollama instance.
-type OllamaProvider struct {
-	BaseURL    string
-	EmbedModel string
-	ChatModel  string
+// --- Ollama Embedder ---
+
+// OllamaEmbedder implements Embedder using a local Ollama instance.
+type OllamaEmbedder struct {
+	BaseURL string
+	Model   string
 }
 
-func NewOllamaProvider() *OllamaProvider {
-	baseURL := os.Getenv("OLLAMA_HOST")
+// NewOllamaEmbedder creates an Ollama embedder.
+// Parameters override defaults; pass empty strings to use defaults.
+// Defaults: baseURL=OLLAMA_HOST or http://localhost:11434, model=nomic-embed-text
+func NewOllamaEmbedder(baseURL, model string) *OllamaEmbedder {
+	if baseURL == "" {
+		baseURL = os.Getenv("OLLAMA_HOST")
+	}
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
-	embedModel := os.Getenv("QQMD_EMBED_MODEL")
-	if embedModel == "" {
-		embedModel = "nomic-embed-text"
+	if model == "" {
+		model = "nomic-embed-text"
 	}
-	chatModel := os.Getenv("QQMD_CHAT_MODEL")
-	if chatModel == "" {
-		chatModel = "qwen3:0.6b"
-	}
-	return &OllamaProvider{
-		BaseURL:    baseURL,
-		EmbedModel: embedModel,
-		ChatModel:  chatModel,
-	}
+	return &OllamaEmbedder{BaseURL: baseURL, Model: model}
 }
 
-func (o *OllamaProvider) Name() string {
-	return fmt.Sprintf("ollama (embed=%s, chat=%s)", o.EmbedModel, o.ChatModel)
+func (o *OllamaEmbedder) Name() string {
+	return fmt.Sprintf("ollama/%s", o.Model)
 }
 
-func (o *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+func (o *OllamaEmbedder) EmbedDimension() int { return 0 }
+
+func (o *OllamaEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	result, err := o.EmbedBatch(ctx, []string{text})
 	if err != nil {
 		return nil, err
@@ -54,16 +53,16 @@ func (o *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, err
 	return result[0], nil
 }
 
-func (o *OllamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+func (o *OllamaEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	type request struct {
-		Model string `json:"model"`
+		Model string   `json:"model"`
 		Input []string `json:"input"`
 	}
 	type response struct {
 		Embeddings [][]float32 `json:"embeddings"`
 	}
 
-	body, _ := json.Marshal(request{Model: o.EmbedModel, Input: texts})
+	body, _ := json.Marshal(request{Model: o.Model, Input: texts})
 	req, err := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/embed", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -89,10 +88,31 @@ func (o *OllamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	return result.Embeddings, nil
 }
 
-func (o *OllamaProvider) Rerank(ctx context.Context, query string, docs []string) ([]float64, error) {
-	// Ollama doesn't have native reranking, so we use the chat model to score relevance.
-	// For each document, ask the model to rate relevance on a 0-10 scale.
-	// For efficiency, batch all docs in one prompt.
+// --- Ollama Chat Provider ---
+
+// OllamaChatProvider implements ChatProvider using a local Ollama instance.
+type OllamaChatProvider struct {
+	BaseURL string
+	Model   string
+}
+
+func NewOllamaChatProvider() *OllamaChatProvider {
+	baseURL := os.Getenv("OLLAMA_HOST")
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+	model := os.Getenv("QQMD_CHAT_MODEL")
+	if model == "" {
+		model = "qwen3:0.6b"
+	}
+	return &OllamaChatProvider{BaseURL: baseURL, Model: model}
+}
+
+func (o *OllamaChatProvider) Name() string {
+	return fmt.Sprintf("ollama/%s", o.Model)
+}
+
+func (o *OllamaChatProvider) Rerank(ctx context.Context, query string, docs []string) ([]float64, error) {
 	if len(docs) == 0 {
 		return nil, nil
 	}
@@ -120,7 +140,7 @@ func (o *OllamaProvider) Rerank(ctx context.Context, query string, docs []string
 	}
 
 	body, _ := json.Marshal(request{
-		Model:  o.ChatModel,
+		Model:  o.Model,
 		Prompt: sb.String(),
 		Stream: false,
 		Format: "json",
@@ -187,7 +207,7 @@ func (o *OllamaProvider) Rerank(ctx context.Context, query string, docs []string
 	return scores[:len(docs)], nil
 }
 
-func (o *OllamaProvider) ExpandQuery(ctx context.Context, query string) (*ExpandedQuery, error) {
+func (o *OllamaChatProvider) ExpandQuery(ctx context.Context, query string) (*ExpandedQuery, error) {
 	prompt := fmt.Sprintf(`Expand this search query into three forms for hybrid search.
 Output a JSON object with keys "lex", "vec", "hyde":
 - lex: keyword-focused version for BM25 text search
@@ -207,7 +227,7 @@ Query: %s`, query)
 	}
 
 	body, _ := json.Marshal(request{
-		Model:  o.ChatModel,
+		Model:  o.Model,
 		Prompt: prompt,
 		Stream: false,
 		Format: "json",
@@ -245,7 +265,7 @@ Query: %s`, query)
 }
 
 // RerankResults reranks search results using the provider and returns them sorted by new scores.
-func RerankResults(ctx context.Context, provider Provider, query string, results []struct {
+func RerankResults(ctx context.Context, provider ChatProvider, query string, results []struct {
 	Doc   string
 	Index int
 }) ([]int, error) {

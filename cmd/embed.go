@@ -21,11 +21,11 @@ var embedCmd = &cobra.Command{
 
 		force, _ := cmd.Flags().GetBool("force")
 
-		provider, err := llm.DefaultProvider(true)
+		embedder, err := llm.DefaultEmbedder()
 		if err != nil {
-			fatal("initializing LLM: %v", err)
+			fatal("initializing embedder: %v", err)
 		}
-		defer llm.CloseProvider(provider)
+		defer llm.CloseIfNeeded(embedder)
 
 		ctx := context.Background()
 
@@ -62,7 +62,7 @@ var embedCmd = &cobra.Command{
 				texts[i] = llm.FormatDocForEmbedding("", chunk.Text)
 			}
 
-			embeddings, err := provider.EmbedBatch(ctx, texts)
+			embeddings, err := embedder.EmbedBatch(ctx, texts)
 			if err != nil {
 				fmt.Printf("  Failed to embed %s: %v\n", hash[:6], err)
 				failed++
@@ -70,7 +70,7 @@ var embedCmd = &cobra.Command{
 			}
 
 			for i, emb := range embeddings {
-				if err := s.StoreEmbedding(hash, i, chunks[i].Start, chunks[i].End, emb, provider.Name()); err != nil {
+				if err := s.StoreEmbedding(hash, i, chunks[i].Start, chunks[i].End, emb, embedder.Name()); err != nil {
 					fmt.Printf("  Failed to store embedding for %s chunk %d: %v\n", hash[:6], i, err)
 				}
 			}

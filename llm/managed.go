@@ -14,6 +14,7 @@ import (
 
 // ManagedProvider runs local llama-server subprocesses to serve models directly.
 // It auto-downloads the llama-server binary and GGUF models from HuggingFace.
+// Implements both Embedder and ChatProvider.
 type ManagedProvider struct {
 	binary      string
 	embedModel  string
@@ -70,6 +71,8 @@ func (m *ManagedProvider) Name() string {
 	return "managed llama-server"
 }
 
+func (m *ManagedProvider) EmbedDimension() int { return 0 }
+
 func (m *ManagedProvider) ensureEmbedServer() error {
 	if m.embedServer != nil && m.embedServer.Running() {
 		return nil
@@ -115,7 +118,7 @@ func (m *ManagedProvider) Close() {
 	}
 }
 
-// --- Provider interface implementation ---
+// --- Embedder interface ---
 
 func (m *ManagedProvider) Embed(_ context.Context, text string) ([]float32, error) {
 	results, err := m.EmbedBatch(context.Background(), []string{text})
@@ -174,6 +177,8 @@ func (m *ManagedProvider) EmbedBatch(_ context.Context, texts []string) ([][]flo
 	}
 	return embeddings, nil
 }
+
+// --- ChatProvider interface ---
 
 func (m *ManagedProvider) Rerank(_ context.Context, query string, docs []string) ([]float64, error) {
 	if err := m.ensureChatServer(); err != nil {
@@ -395,6 +400,12 @@ func StatusMessage() string {
 		fmt.Fprintf(&sb, "chat model: %s (%d MB)\n", chatPath, fi.Size()>>20)
 	} else {
 		fmt.Fprintf(&sb, "chat model: not downloaded (run 'qqmd query' to download)\n")
+	}
+
+	// Show configured embed backend
+	backend := os.Getenv("QQMD_EMBED_BACKEND")
+	if backend != "" {
+		fmt.Fprintf(&sb, "embed backend: %s\n", backend)
 	}
 
 	return sb.String()

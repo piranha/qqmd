@@ -76,11 +76,21 @@ var queryCmd = &cobra.Command{
 
 		// Step 2: Try vector search if embeddings exist
 		var vecResults []store.SearchResult
-		provider, err := llm.DefaultProvider(false)
+
+		embedder, err := llm.DefaultEmbedder()
 		if err != nil {
-			fatal("initializing LLM: %v", err)
+			fatal("initializing embedder: %v", err)
 		}
-		defer llm.CloseProvider(provider)
+		defer llm.CloseIfNeeded(embedder)
+
+		chatProvider, err := llm.DefaultChatProvider()
+		if err != nil {
+			// Chat provider is optional — reranking/expansion will be skipped
+			chatProvider = nil
+		}
+		if chatProvider != nil {
+			defer llm.CloseIfNeeded(chatProvider)
+		}
 
 		embCount, _, _ := s.EmbeddingStats()
 		if embCount > 0 {
@@ -92,7 +102,7 @@ var queryCmd = &cobra.Command{
 				vecText = hydeQuery
 			}
 			queryEmb := llm.FormatQueryForEmbedding(vecText)
-			embedding, err := provider.Embed(ctx, queryEmb)
+			embedding, err := embedder.Embed(ctx, queryEmb)
 			if err == nil {
 				vecOpts := opts
 				vecOpts.Limit = 40
@@ -101,8 +111,8 @@ var queryCmd = &cobra.Command{
 		}
 
 		// Step 3: If no structured query and we have LLM, try query expansion
-		if lexQuery == "" && vecQuery == "" && hydeQuery == "" && embCount > 0 {
-			expanded, err := provider.ExpandQuery(ctx, query)
+		if lexQuery == "" && vecQuery == "" && hydeQuery == "" && embCount > 0 && chatProvider != nil {
+			expanded, err := chatProvider.ExpandQuery(ctx, query)
 			if err == nil && expanded != nil {
 				// Run expanded lex query
 				if expanded.Lex != "" && expanded.Lex != query {
@@ -112,7 +122,7 @@ var queryCmd = &cobra.Command{
 				// Run expanded vec query
 				if expanded.Vec != "" {
 					vecText := llm.FormatQueryForEmbedding(expanded.Vec)
-					emb, err := provider.Embed(ctx, vecText)
+					emb, err := embedder.Embed(ctx, vecText)
 					if err == nil {
 						expandedVec, _ := s.SearchVec(emb, ftsOpts)
 						vecResults = append(vecResults, expandedVec...)
@@ -125,13 +135,9 @@ var queryCmd = &cobra.Command{
 		limit := opts.EffectiveLimit()
 		results := s.HybridSearch(ftsResults, vecResults, limit*2)
 
-		// Step 5: Rerank top candidates if we have enough
-		if len(results) > limit {
+		// Step 5: Rerank top candidates if we have enough and chat provider is available
+		if len(results) > limit && chatProvider != nil {
 			s.LoadDocumentBodies(results)
-			type docForRerank struct {
-				Doc   string
-				Index int
-			}
 			var candidates []struct {
 				Doc   string
 				Index int
@@ -149,7 +155,7 @@ var queryCmd = &cobra.Command{
 					Index int
 				}{Doc: text, Index: i})
 			}
-			reranked, err := llm.RerankResults(ctx, provider, query, candidates)
+			reranked, err := llm.RerankResults(ctx, chatProvider, query, candidates)
 			if err == nil && len(reranked) > 0 {
 				var rerankedResults []store.SearchResult
 				for _, idx := range reranked {

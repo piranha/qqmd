@@ -21,17 +21,17 @@ var vsearchCmd = &cobra.Command{
 		}
 		defer s.Close()
 
-		provider, err := llm.DefaultProvider(true)
+		embedder, err := llm.DefaultEmbedder()
 		if err != nil {
-			fatal("initializing LLM: %v", err)
+			fatal("initializing embedder: %v", err)
 		}
-		defer llm.CloseProvider(provider)
+		defer llm.CloseIfNeeded(embedder)
 
 		ctx := context.Background()
 
 		// Embed the query
 		queryText := llm.FormatQueryForEmbedding(args[0])
-		embedding, err := provider.Embed(ctx, queryText)
+		embedding, err := embedder.Embed(ctx, queryText)
 		if err != nil {
 			fatal("embedding query: %v", err)
 		}

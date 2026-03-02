@@ -854,3 +854,208 @@ func TestConfigDirIsolation(t *testing.T) {
 		t.Errorf("config file should exist at %q", p)
 	}
 }
+
+// --- 1.8 Embed config ---
+
+func TestMarshalUnmarshalEmbedConfig(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Embed: EmbedConfig{
+			Backend: "openai",
+			Model:   "text-embedding-3-small",
+			APIKey:  "sk-test-123",
+			BaseURL: "https://api.example.com/v1",
+		},
+		Collections: make(map[string]Collection),
+	}
+	data, err := marshalConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := unmarshalConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Embed.Backend != "openai" {
+		t.Errorf("backend = %q, want openai", got.Embed.Backend)
+	}
+	if got.Embed.Model != "text-embedding-3-small" {
+		t.Errorf("model = %q", got.Embed.Model)
+	}
+	if got.Embed.APIKey != "sk-test-123" {
+		t.Errorf("api-key = %q", got.Embed.APIKey)
+	}
+	if got.Embed.BaseURL != "https://api.example.com/v1" {
+		t.Errorf("base-url = %q", got.Embed.BaseURL)
+	}
+}
+
+func TestMarshalEmbedConfigPartial(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Embed: EmbedConfig{
+			Backend: "ollama",
+		},
+		Collections: make(map[string]Collection),
+	}
+	data, err := marshalConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "embed") {
+		t.Error("output should contain embed node")
+	}
+	if strings.Contains(s, "api-key") {
+		t.Error("output should not contain api-key when empty")
+	}
+	got, err := unmarshalConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Embed.Backend != "ollama" {
+		t.Errorf("backend = %q, want ollama", got.Embed.Backend)
+	}
+	if got.Embed.Model != "" {
+		t.Errorf("model should be empty, got %q", got.Embed.Model)
+	}
+}
+
+func TestMarshalEmbedConfigEmpty(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Collections: make(map[string]Collection),
+	}
+	data, err := marshalConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if strings.Contains(s, "embed") {
+		t.Errorf("output should not contain embed node when empty, got:\n%s", s)
+	}
+}
+
+func TestGetEmbedConfig_FromFile(t *testing.T) {
+	setConfigDir(t)
+
+	// Clear relevant env vars for this test
+	for _, key := range []string{"QQMD_EMBED_BACKEND", "QQMD_EMBED_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL"} {
+		old := os.Getenv(key)
+		os.Unsetenv(key)
+		t.Cleanup(func() {
+			if old != "" {
+				os.Setenv(key, old)
+			}
+		})
+	}
+
+	cfg := &Config{
+		Embed: EmbedConfig{
+			Backend: "openai",
+			Model:   "text-embedding-3-large",
+			APIKey:  "sk-from-config",
+		},
+		Collections: make(map[string]Collection),
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	ec := GetEmbedConfig()
+	if ec.Backend != "openai" {
+		t.Errorf("backend = %q, want openai", ec.Backend)
+	}
+	if ec.Model != "text-embedding-3-large" {
+		t.Errorf("model = %q", ec.Model)
+	}
+	if ec.APIKey != "sk-from-config" {
+		t.Errorf("api-key = %q", ec.APIKey)
+	}
+}
+
+func TestGetEmbedConfig_EnvOverridesFile(t *testing.T) {
+	setConfigDir(t)
+
+	cfg := &Config{
+		Embed: EmbedConfig{
+			Backend: "openai",
+			Model:   "text-embedding-3-small",
+			APIKey:  "sk-from-config",
+		},
+		Collections: make(map[string]Collection),
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set env overrides
+	os.Setenv("QQMD_EMBED_BACKEND", "ollama")
+	os.Setenv("OPENAI_API_KEY", "sk-from-env")
+	t.Cleanup(func() {
+		os.Unsetenv("QQMD_EMBED_BACKEND")
+		os.Unsetenv("OPENAI_API_KEY")
+	})
+
+	ec := GetEmbedConfig()
+	if ec.Backend != "ollama" {
+		t.Errorf("backend = %q, want ollama (env override)", ec.Backend)
+	}
+	if ec.APIKey != "sk-from-env" {
+		t.Errorf("api-key = %q, want sk-from-env (env override)", ec.APIKey)
+	}
+	// Model should come from config since env not set
+	if ec.Model != "text-embedding-3-small" {
+		t.Errorf("model = %q, want text-embedding-3-small (from config)", ec.Model)
+	}
+}
+
+func TestGetEmbedConfig_EmptyConfig(t *testing.T) {
+	setConfigDir(t)
+
+	// Clear relevant env vars
+	for _, key := range []string{"QQMD_EMBED_BACKEND", "QQMD_EMBED_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL"} {
+		old := os.Getenv(key)
+		os.Unsetenv(key)
+		t.Cleanup(func() {
+			if old != "" {
+				os.Setenv(key, old)
+			}
+		})
+	}
+
+	ec := GetEmbedConfig()
+	if ec.Backend != "" {
+		t.Errorf("backend should be empty, got %q", ec.Backend)
+	}
+	if ec.Model != "" {
+		t.Errorf("model should be empty, got %q", ec.Model)
+	}
+}
+
+func TestSaveLoadEmbedWithCollections(t *testing.T) {
+	setConfigDir(t)
+	dir := t.TempDir()
+	cfg := &Config{
+		Embed: EmbedConfig{
+			Backend: "openai",
+			APIKey:  "sk-123",
+		},
+		Collections: map[string]Collection{
+			"docs": {Path: dir, Pattern: "**/*.md"},
+		},
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Embed.Backend != "openai" {
+		t.Errorf("embed backend = %q", got.Embed.Backend)
+	}
+	if _, ok := got.Collections["docs"]; !ok {
+		t.Error("collection 'docs' not found")
+	}
+}

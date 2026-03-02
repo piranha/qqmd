@@ -22,8 +22,17 @@ type Collection struct {
 	IncludeByDefault *bool
 }
 
+// EmbedConfig configures the embedding backend.
+type EmbedConfig struct {
+	Backend string // "openai", "ollama", or "" (auto-detect)
+	Model   string // model name (e.g. "text-embedding-3-small", "nomic-embed-text")
+	APIKey  string // API key (for openai backend)
+	BaseURL string // base URL override (for openai-compatible APIs)
+}
+
 type Config struct {
 	GlobalContext string
+	Embed         EmbedConfig
 	Collections   map[string]Collection
 }
 
@@ -73,6 +82,31 @@ func marshalConfig(cfg *Config) ([]byte, error) {
 	if cfg.GlobalContext != "" {
 		n := newNode("global-context")
 		n.AddArgument(cfg.GlobalContext, "")
+		doc.AddNode(n)
+	}
+
+	if cfg.Embed.Backend != "" || cfg.Embed.Model != "" || cfg.Embed.APIKey != "" || cfg.Embed.BaseURL != "" {
+		n := newNode("embed")
+		if cfg.Embed.Backend != "" {
+			backendNode := newNode("backend")
+			backendNode.AddArgument(cfg.Embed.Backend, "")
+			n.AddNode(backendNode)
+		}
+		if cfg.Embed.Model != "" {
+			modelNode := newNode("model")
+			modelNode.AddArgument(cfg.Embed.Model, "")
+			n.AddNode(modelNode)
+		}
+		if cfg.Embed.APIKey != "" {
+			keyNode := newNode("api-key")
+			keyNode.AddArgument(cfg.Embed.APIKey, "")
+			n.AddNode(keyNode)
+		}
+		if cfg.Embed.BaseURL != "" {
+			urlNode := newNode("base-url")
+			urlNode.AddArgument(cfg.Embed.BaseURL, "")
+			n.AddNode(urlNode)
+		}
 		doc.AddNode(n)
 	}
 
@@ -133,6 +167,27 @@ func unmarshalConfig(data []byte) (*Config, error) {
 		case "global-context":
 			if len(node.Arguments) > 0 {
 				cfg.GlobalContext = fmt.Sprintf("%v", node.Arguments[0].Value)
+			}
+		case "embed":
+			for _, child := range node.Children {
+				switch child.Name.String() {
+				case "backend":
+					if len(child.Arguments) > 0 {
+						cfg.Embed.Backend = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				case "model":
+					if len(child.Arguments) > 0 {
+						cfg.Embed.Model = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				case "api-key":
+					if len(child.Arguments) > 0 {
+						cfg.Embed.APIKey = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				case "base-url":
+					if len(child.Arguments) > 0 {
+						cfg.Embed.BaseURL = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				}
 			}
 		case "collection":
 			if len(node.Arguments) == 0 {
@@ -418,6 +473,33 @@ func FindContextForPath(collectionName, filePath string) string {
 		return bestCtx
 	}
 	return cfg.GlobalContext
+}
+
+// GetEmbedConfig returns the effective embedding configuration,
+// merging the config file with environment variable overrides.
+// Environment variables take precedence over the config file.
+func GetEmbedConfig() EmbedConfig {
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = &Config{}
+	}
+	ec := cfg.Embed
+
+	// Env overrides config
+	if v := os.Getenv("QQMD_EMBED_BACKEND"); v != "" {
+		ec.Backend = v
+	}
+	if v := os.Getenv("QQMD_EMBED_MODEL"); v != "" {
+		ec.Model = v
+	}
+	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
+		ec.APIKey = v
+	}
+	if v := os.Getenv("OPENAI_BASE_URL"); v != "" {
+		ec.BaseURL = v
+	}
+
+	return ec
 }
 
 var validNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
