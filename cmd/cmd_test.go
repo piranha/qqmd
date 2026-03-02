@@ -441,6 +441,166 @@ func TestOutputFormats(t *testing.T) {
 	}
 }
 
+// --- Tests ported from qmd CLI integration suite ---
+
+func TestSearchNoResults(t *testing.T) {
+	t.Parallel()
+	cfg, cache := setupEnv(t)
+	dir := createMdDir(t, map[string]string{
+		"doc.md": "# About Cats\n\nCats are great animals.",
+	})
+
+	run(t, cfg, cache, "collection", "add", "--name", "test", dir)
+	out, err := run(t, cfg, cache, "search", "xyznonexistent123", "--json")
+	if err != nil {
+		t.Fatalf("search: %v\n%s", err, out)
+	}
+
+	var results []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestSearchAllFlag(t *testing.T) {
+	t.Parallel()
+	cfg, cache := setupEnv(t)
+	files := make(map[string]string)
+	for i := 0; i < 20; i++ {
+		name := fmt.Sprintf("doc%d.md", i)
+		files[name] = fmt.Sprintf("# Doc %d\n\nSearchable content here.", i)
+	}
+	dir := createMdDir(t, files)
+
+	run(t, cfg, cache, "collection", "add", "--name", "test", dir)
+	out, err := run(t, cfg, cache, "search", "searchable content", "--all", "--json")
+	if err != nil {
+		t.Fatalf("search --all: %v\n%s", err, out)
+	}
+
+	var results []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	// --all should return more than the default limit of 5
+	if len(results) <= 5 {
+		t.Errorf("expected more than 5 results with --all, got %d", len(results))
+	}
+}
+
+func TestSearchFilesFormat(t *testing.T) {
+	t.Parallel()
+	cfg, cache := setupEnv(t)
+	dir := createMdDir(t, map[string]string{
+		"guide.md": "# Installation Guide\n\nHow to install the software.",
+	})
+
+	run(t, cfg, cache, "collection", "add", "--name", "docs", dir)
+	out, err := run(t, cfg, cache, "search", "installation", "--files")
+	if err != nil {
+		t.Fatalf("search --files: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "qqmd://docs/") {
+		t.Errorf("--files output should contain qqmd:// paths:\n%s", out)
+	}
+}
+
+func TestSearchCollectionFilter(t *testing.T) {
+	t.Parallel()
+	cfg, cache := setupEnv(t)
+	dir1 := createMdDir(t, map[string]string{
+		"a.md": "# Alpha Doc\n\nSearchable alpha content.",
+	})
+	dir2 := createMdDir(t, map[string]string{
+		"b.md": "# Beta Doc\n\nSearchable beta content.",
+	})
+
+	run(t, cfg, cache, "collection", "add", "--name", "alpha", dir1)
+	run(t, cfg, cache, "collection", "add", "--name", "beta", dir2)
+
+	out, err := run(t, cfg, cache, "search", "searchable", "-c", "alpha", "--json")
+	if err != nil {
+		t.Fatalf("search -c: %v\n%s", err, out)
+	}
+
+	var results []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	for _, r := range results {
+		file := r["file"].(string)
+		if !strings.HasPrefix(file, "qqmd://alpha/") {
+			t.Errorf("expected only alpha results, got %q", file)
+		}
+	}
+}
+
+func TestSearchJsonIncludesDocidAndPath(t *testing.T) {
+	t.Parallel()
+	cfg, cache := setupEnv(t)
+	dir := createMdDir(t, map[string]string{
+		"doc.md": "# Test Doc\n\nSome searchable test content.",
+	})
+
+	run(t, cfg, cache, "collection", "add", "--name", "mytest", dir)
+	out, err := run(t, cfg, cache, "search", "searchable", "--json", "-n", "1")
+	if err != nil {
+		t.Fatalf("search: %v\n%s", err, out)
+	}
+
+	var results []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 result")
+	}
+
+	r := results[0]
+	// Should have qqmd:// path
+	file := r["file"].(string)
+	if !strings.HasPrefix(file, "qqmd://mytest/") {
+		t.Errorf("file = %q, want qqmd://mytest/ prefix", file)
+	}
+	// Should have docid
+	docid := r["docid"].(string)
+	if !strings.HasPrefix(docid, "#") {
+		t.Errorf("docid = %q, want # prefix", docid)
+	}
+	// Should not contain filesystem paths
+	if strings.Contains(file, "/Users/") || strings.Contains(file, "/tmp/") {
+		t.Errorf("file should not contain filesystem paths: %q", file)
+	}
+}
+
+func TestUpdateDetectsNewAndModified(t *testing.T) {
+	t.Parallel()
+	cfg, cache := setupEnv(t)
+	dir := createMdDir(t, map[string]string{
+		"first.md": "# First\n\nInitial content.",
+	})
+
+	run(t, cfg, cache, "collection", "add", "--name", "test", dir)
+
+	// Add a new file and modify existing
+	os.WriteFile(filepath.Join(dir, "second.md"), []byte("# Second\n\nNew file."), 0o644)
+	os.WriteFile(filepath.Join(dir, "first.md"), []byte("# First\n\nModified content."), 0o644)
+
+	out, err := run(t, cfg, cache, "update")
+	if err != nil {
+		t.Fatalf("update: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "1 added") {
+		t.Errorf("expected '1 added' in output:\n%s", out)
+	}
+	if !strings.Contains(out, "1 updated") {
+		t.Errorf("expected '1 updated' in output:\n%s", out)
+	}
+}
+
 func TestIndexFlag(t *testing.T) {
 	t.Parallel()
 	cfg, cache := setupEnv(t)

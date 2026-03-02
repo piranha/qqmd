@@ -3,6 +3,8 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -359,6 +361,116 @@ func TestAddLineNumbers_StartOffset(t *testing.T) {
 	}
 	if !strings.Contains(got, "12: c") {
 		t.Errorf("expected line 12, got:\n%s", got)
+	}
+}
+
+// --- Content-addressable storage tests ported from qmd ---
+
+func TestContentDedup_SameHashAcrossCollections(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	body := "# Shared Content\n\nThis is the same content."
+	mustInsertDoc(t, s, "coll1", "shared.md", body)
+	mustInsertDoc(t, s, "coll2", "shared.md", body)
+
+	// Both documents should reference the same hash
+	hash := HashContent(body)
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM content WHERE hash=?", hash).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 content entry, got %d", count)
+	}
+
+	var docCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM documents WHERE hash=?", hash).Scan(&docCount)
+	if docCount != 2 {
+		t.Errorf("expected 2 documents pointing to same hash, got %d", docCount)
+	}
+}
+
+func TestContentDedup_DifferentContentDifferentHash(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	mustInsertDoc(t, s, "test", "a.md", "# Content One")
+	mustInsertDoc(t, s, "test", "b.md", "# Content Two")
+
+	hashA := HashContent("# Content One")
+	hashB := HashContent("# Content Two")
+	if hashA == hashB {
+		t.Error("different content should have different hashes")
+	}
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM content").Scan(&count)
+	if count != 2 {
+		t.Errorf("expected 2 content entries, got %d", count)
+	}
+}
+
+func TestDocumentReactivation(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	dir := createTestFiles(t, map[string]string{
+		"doc.md": "# First Version\n\nOriginal content.",
+	})
+
+	// Index it
+	s.IndexCollection("test", coll(dir, ""))
+
+	// Verify it's active
+	files, _ := s.ListFiles("")
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	// Remove the file and re-index to deactivate
+	os.Remove(filepath.Join(dir, "doc.md"))
+	s.IndexCollection("test", coll(dir, ""))
+	files, _ = s.ListFiles("")
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files after removal, got %d", len(files))
+	}
+
+	// Bring the file back with new content
+	os.WriteFile(filepath.Join(dir, "doc.md"), []byte("# Second Version\n\nNew content."), 0o644)
+	stats, err := s.IndexCollection("test", coll(dir, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should be added back (reactivated)
+	files, _ = s.ListFiles("")
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file after reactivation, got %d", len(files))
+	}
+
+	// Should only have one document row (not duplicate)
+	var rowCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM documents WHERE collection='test' AND filepath='doc.md'").Scan(&rowCount)
+	if rowCount != 1 {
+		t.Errorf("expected 1 document row, got %d (duplicate?)", rowCount)
+	}
+
+	// New content should be searchable
+	results, _ := s.SearchFTS("Second Version", SearchOptions{Limit: 10})
+	if len(results) == 0 {
+		t.Error("new content should be searchable after reactivation")
+	}
+
+	_ = stats
+}
+
+func TestDocumentSpecialCharsInPath(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	mustInsertDoc(t, s, "test", "file with spaces.md", "# Spaces In Path\n\nContent.")
+
+	doc, err := s.FindDocument("test/file with spaces.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc == nil {
+		t.Error("should find document with spaces in path")
 	}
 }
 

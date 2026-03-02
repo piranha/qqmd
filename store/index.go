@@ -134,16 +134,17 @@ func (s *Store) indexFile(collection, relPath, absPath string) (string, error) {
 	}
 	modTime := info.ModTime().UTC().Format(time.RFC3339)
 
-	// Check if document already exists
+	// Check if document already exists (active or inactive)
 	var existingID int64
 	var existingHash string
+	var existingActive int
 	err = s.DB.QueryRow(
-		"SELECT id, hash FROM documents WHERE collection=? AND filepath=? AND active=1",
+		"SELECT id, hash, active FROM documents WHERE collection=? AND filepath=?",
 		collection, relPath,
-	).Scan(&existingID, &existingHash)
+	).Scan(&existingID, &existingHash, &existingActive)
 
 	if err == sql.ErrNoRows {
-		// New document
+		// Completely new document
 		if _, err := s.DB.Exec(
 			"INSERT OR IGNORE INTO content (hash, body) VALUES (?, ?)",
 			hash, body,
@@ -171,7 +172,32 @@ func (s *Store) indexFile(collection, relPath, absPath string) (string, error) {
 		return "", err
 	}
 
-	// Exists — check if content changed
+	// Document was previously deactivated — reactivate with new content
+	if existingActive == 0 {
+		if _, err := s.DB.Exec(
+			"INSERT OR IGNORE INTO content (hash, body) VALUES (?, ?)",
+			hash, body,
+		); err != nil {
+			return "", err
+		}
+		if _, err := s.DB.Exec(
+			"UPDATE documents SET title=?, hash=?, modified_at=?, body_length=?, active=1 WHERE id=?",
+			title, hash, modTime, len(body), existingID,
+		); err != nil {
+			return "", err
+		}
+		// Re-add FTS entry
+		s.DB.Exec("DELETE FROM documents_fts WHERE rowid = ?", existingID)
+		if _, err := s.DB.Exec(
+			"INSERT INTO documents_fts (rowid, filepath, title, body) VALUES (?, ?, ?, ?)",
+			existingID, collection+"/"+relPath, title, body,
+		); err != nil {
+			return "", err
+		}
+		return "added", nil
+	}
+
+	// Active document — check if content changed
 	if existingHash == hash {
 		return "unchanged", nil
 	}

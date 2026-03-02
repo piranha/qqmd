@@ -4,6 +4,7 @@ package store
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -421,5 +422,105 @@ func TestExtractSnippet_EmptyBody(t *testing.T) {
 	}
 	if line != 0 {
 		t.Errorf("line = %d, want 0", line)
+	}
+}
+
+// --- Edge cases ported from qmd ---
+
+func TestSearchFTS_UnicodeContent(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	mustInsertDoc(t, s, "test", "unicode.md",
+		"# Ünïcödë Tïtlé\n\nCafé résumé naïve über coöperate.\n\nEmoji: 🎉🚀✨")
+
+	results, err := s.SearchFTS("résumé", SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 {
+		t.Error("expected to find unicode content")
+	}
+
+	// Verify retrieval preserves unicode
+	body, err := s.GetContentBody(results[0].Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "🎉") {
+		t.Error("body should contain emoji")
+	}
+}
+
+func TestSearchFTS_VeryLongDocument(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	longBody := "# Long Doc\n\n"
+	for i := 0; i < 10000; i++ {
+		longBody += "searchable word in a very long document. "
+	}
+	mustInsertDoc(t, s, "test", "long.md", longBody)
+
+	results, err := s.SearchFTS("searchable", SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+}
+
+func TestSearchFTS_EmptyDatabase(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	results, err := s.SearchFTS("anything", SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results from empty db, got %d", len(results))
+	}
+}
+
+func TestSearchFTS_MultipleCollections(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	mustInsertDoc(t, s, "coll1", "a.md", "# Searchable content one")
+	mustInsertDoc(t, s, "coll2", "b.md", "# Searchable content two")
+	mustInsertDoc(t, s, "coll3", "c.md", "# Searchable content three")
+
+	// Search across specific collections
+	results, err := s.SearchFTS("searchable content", SearchOptions{
+		Collections: []string{"coll1", "coll3"},
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(results))
+	}
+	for _, r := range results {
+		if r.Collection != "coll1" && r.Collection != "coll3" {
+			t.Errorf("unexpected collection %q", r.Collection)
+		}
+	}
+}
+
+func TestSearchFTS_TitleMatchRanksHigher(t *testing.T) {
+	t.Parallel()
+	s := mustOpenMemory(t)
+	mustInsertDoc(t, s, "test", "body.md", "# Other Title\n\nSomething about kubernetes.")
+	mustInsertDoc(t, s, "test", "title.md", "# Kubernetes Guide\n\nDifferent content about kubernetes.")
+
+	results, err := s.SearchFTS("kubernetes", SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) < 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	// Title match should rank higher due to BM25 weights
+	if results[0].Filepath != "title.md" {
+		t.Errorf("expected title.md first, got %q", results[0].Filepath)
 	}
 }
