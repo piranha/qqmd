@@ -21,7 +21,12 @@ var vsearchCmd = &cobra.Command{
 		}
 		defer s.Close()
 
-		provider := llm.NewOllamaProvider()
+		provider, err := llm.DefaultProvider(true)
+		if err != nil {
+			fatal("initializing LLM: %v", err)
+		}
+		defer llm.CloseProvider(provider)
+
 		ctx := context.Background()
 
 		// Embed the query

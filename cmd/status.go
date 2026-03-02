@@ -5,6 +5,7 @@ import (
 
 	"github.com/piranha/qqmd/config"
 	"github.com/piranha/qqmd/format"
+	"github.com/piranha/qqmd/llm"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +41,10 @@ var statusCmd = &cobra.Command{
 
 			// Config info
 			fmt.Printf("\nConfig: %s\n", config.ConfigPath())
+
+			// LLM info
+			fmt.Println()
+			fmt.Print(llm.StatusMessage())
 		}
 	},
 }

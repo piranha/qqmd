@@ -76,7 +76,11 @@ var queryCmd = &cobra.Command{
 
 		// Step 2: Try vector search if embeddings exist
 		var vecResults []store.SearchResult
-		provider := llm.NewOllamaProvider()
+		provider, err := llm.DefaultProvider(false)
+		if err != nil {
+			fatal("initializing LLM: %v", err)
+		}
+		defer llm.CloseProvider(provider)
 
 		embCount, _, _ := s.EmbeddingStats()
 		if embCount > 0 {
