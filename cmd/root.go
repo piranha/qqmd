@@ -25,6 +25,9 @@ var (
 	indexName   string
 )
 
+// Version is set via -ldflags at build time.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "qqmd",
 	Short: "On-device search engine for markdown files",
