@@ -184,11 +184,6 @@ func (s *Store) indexFile(collection, relPath, absPath string) (string, error) {
 		return "", err
 	}
 
-	// Get old body for FTS delete
-	var oldBody, oldTitle string
-	s.DB.QueryRow("SELECT c.body, d.title FROM documents d JOIN content c ON d.hash = c.hash WHERE d.id = ?",
-		existingID).Scan(&oldBody, &oldTitle)
-
 	if _, err := s.DB.Exec(
 		"UPDATE documents SET title=?, hash=?, modified_at=?, body_length=? WHERE id=?",
 		title, hash, modTime, len(body), existingID,
@@ -196,14 +191,8 @@ func (s *Store) indexFile(collection, relPath, absPath string) (string, error) {
 		return "", err
 	}
 
-	// Update FTS: delete old, insert new
-	if _, err := s.DB.Exec(
-		"INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body) VALUES('delete', ?, ?, ?, ?)",
-		existingID, collection+"/"+relPath, oldTitle, oldBody,
-	); err != nil {
-		// FTS delete may fail if content doesn't match exactly; just proceed
-		_ = err
-	}
+	// Update FTS: delete old entry by rowid, insert new
+	s.DB.Exec("DELETE FROM documents_fts WHERE rowid = ?", existingID)
 	if _, err := s.DB.Exec(
 		"INSERT INTO documents_fts (rowid, filepath, title, body) VALUES (?, ?, ?, ?)",
 		existingID, collection+"/"+relPath, title, body,
@@ -250,12 +239,7 @@ func (s *Store) deactivateMissing(collection string, seen map[string]bool) (int,
 			return 0, err
 		}
 		// Remove from FTS
-		var body string
-		s.DB.QueryRow("SELECT body FROM content WHERE hash=?", r.hash).Scan(&body)
-		s.DB.Exec(
-			"INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body) VALUES('delete', ?, ?, ?, ?)",
-			r.id, collection+"/"+r.filepath, r.title, body,
-		)
+		s.DB.Exec("DELETE FROM documents_fts WHERE rowid = ?", r.id)
 	}
 
 	return len(toRemove), nil
@@ -291,12 +275,7 @@ func (s *Store) DeactivateCollection(collection string) error {
 		if _, err := s.DB.Exec("UPDATE documents SET active=0 WHERE id=?", d.id); err != nil {
 			return err
 		}
-		var body string
-		s.DB.QueryRow("SELECT body FROM content WHERE hash=?", d.hash).Scan(&body)
-		s.DB.Exec(
-			"INSERT INTO documents_fts(documents_fts, rowid, filepath, title, body) VALUES('delete', ?, ?, ?, ?)",
-			d.id, collection+"/"+d.filepath, d.title, body,
-		)
+		s.DB.Exec("DELETE FROM documents_fts WHERE rowid = ?", d.id)
 	}
 	return nil
 }
