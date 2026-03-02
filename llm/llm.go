@@ -84,10 +84,20 @@ func DefaultEmbedder() (Embedder, error) {
 }
 
 // DefaultChatProvider returns the best available chat provider.
-// Priority: QQMD_PROVIDER=ollama env > managed llama-server > Ollama.
+// When the embed backend is explicitly set to a remote provider (e.g. openai),
+// chat features are skipped unless QQMD_PROVIDER is explicitly set.
+// This avoids downloading local models when the user wants a remote-only setup.
 func DefaultChatProvider() (ChatProvider, error) {
+	ec := config.GetEmbedConfig()
+
 	if os.Getenv("QQMD_PROVIDER") == "ollama" {
 		return NewOllamaChatProvider(), nil
+	}
+
+	// If user explicitly configured a remote embed backend and didn't
+	// also set QQMD_PROVIDER, don't try to download local models for chat.
+	if ec.Backend != "" && ec.Backend != "ollama" {
+		return nil, fmt.Errorf("chat provider not configured (skipping reranking/expansion)")
 	}
 
 	p, err := NewManagedProvider()
