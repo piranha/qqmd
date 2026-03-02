@@ -74,6 +74,12 @@ func FormatFileList(docs []store.DocumentResult, format string) string {
 		return fileListJSON(docs)
 	case "csv":
 		return fileListCSV(docs)
+	case "md":
+		return fileListMD(docs)
+	case "xml":
+		return fileListXML(docs)
+	case "files":
+		return fileListFiles(docs)
 	default:
 		return fileListJSON(docs)
 	}
@@ -451,6 +457,40 @@ func fileListCSV(docs []store.DocumentResult) string {
 			escapeCSV(d.Title),
 			d.ModifiedAt,
 			d.BodyLength)
+	}
+	return sb.String()
+}
+
+func fileListMD(docs []store.DocumentResult) string {
+	var sb strings.Builder
+	sb.WriteString("| File | Title | Docid | Modified | Size |\n")
+	sb.WriteString("|------|-------|-------|----------|------|\n")
+	for _, d := range docs {
+		title := d.Title
+		if title == "" {
+			title = "-"
+		}
+		fmt.Fprintf(&sb, "| %s | %s | `#%s` | %s | %d |\n",
+			d.DisplayPath, title, d.Docid(), d.ModifiedAt, d.BodyLength)
+	}
+	return sb.String()
+}
+
+func fileListXML(docs []store.DocumentResult) string {
+	var sb strings.Builder
+	sb.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<files>\n")
+	for _, d := range docs {
+		fmt.Fprintf(&sb, "  <file docid=\"#%s\" name=\"%s\" title=\"%s\" modified=\"%s\" size=\"%d\"/>\n",
+			d.Docid(), escapeXML(d.DisplayPath), escapeXML(d.Title), escapeXML(d.ModifiedAt), d.BodyLength)
+	}
+	sb.WriteString("</files>")
+	return sb.String()
+}
+
+func fileListFiles(docs []store.DocumentResult) string {
+	var sb strings.Builder
+	for _, d := range docs {
+		fmt.Fprintf(&sb, "%s\n", d.DisplayPath)
 	}
 	return sb.String()
 }
