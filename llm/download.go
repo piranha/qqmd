@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-// Model definitions matching the original qmd defaults.
+// Model definitions for qqmd defaults.
 type ModelDef struct {
 	Name     string
 	HFRepo   string // HuggingFace repo (org/repo)
@@ -40,10 +40,10 @@ func (m ModelDef) URL() string {
 
 func CacheDir() string {
 	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
-		return filepath.Join(d, "qmd")
+		return filepath.Join(d, "qqmd")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "qmd")
+	return filepath.Join(home, ".cache", "qqmd")
 }
 
 func ModelsDir() string { return filepath.Join(CacheDir(), "models") }
@@ -129,11 +129,11 @@ func DownloadFile(url, dest, description string) error {
 // EnsureLlamaServer returns the path to a llama-server binary, downloading if needed.
 func EnsureLlamaServer() (string, error) {
 	// 1. Env override
-	if p := os.Getenv("QMD_LLAMA_SERVER"); p != "" {
+	if p := os.Getenv("QQMD_LLAMA_SERVER"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p, nil
 		}
-		return "", fmt.Errorf("QMD_LLAMA_SERVER=%s not found", p)
+		return "", fmt.Errorf("QQMD_LLAMA_SERVER=%s not found", p)
 	}
 
 	// 2. Check PATH
@@ -440,22 +440,22 @@ func EnsureModel(model ModelDef) (string, error) {
 
 // EnsureEmbedModel returns the path to the embedding model, downloading if needed.
 func EnsureEmbedModel() (string, error) {
-	if p := os.Getenv("QMD_EMBED_MODEL"); p != "" {
+	if p := os.Getenv("QQMD_EMBED_MODEL"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p, nil
 		}
-		return "", fmt.Errorf("QMD_EMBED_MODEL=%s not found as local file", p)
+		return "", fmt.Errorf("QQMD_EMBED_MODEL=%s not found as local file", p)
 	}
 	return EnsureModel(DefaultEmbedModel)
 }
 
 // EnsureChatModel returns the path to the chat model, downloading if needed.
 func EnsureChatModel() (string, error) {
-	if p := os.Getenv("QMD_CHAT_MODEL"); p != "" {
+	if p := os.Getenv("QQMD_CHAT_MODEL"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p, nil
 		}
-		return "", fmt.Errorf("QMD_CHAT_MODEL=%s not found as local file", p)
+		return "", fmt.Errorf("QQMD_CHAT_MODEL=%s not found as local file", p)
 	}
 	return EnsureModel(DefaultChatModel)
 }

@@ -5,8 +5,8 @@ go 1.23.0
 require (
 	github.com/bmatcuk/doublestar/v4 v4.7.1
 	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/sblinch/kdl-go v0.0.0-20260121213736-8b7053306ca6
 	github.com/spf13/cobra v1.8.1
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

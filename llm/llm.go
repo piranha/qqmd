@@ -43,8 +43,8 @@ type ExpandedQuery struct {
 // The embedOnly flag skips downloading the larger chat model when
 // only embedding is needed (e.g., for the embed and vsearch commands).
 func DefaultProvider(embedOnly bool) (Provider, error) {
-	// If QMD_PROVIDER=ollama is set, use Ollama
-	if os.Getenv("QMD_PROVIDER") == "ollama" {
+	// If QQMD_PROVIDER=ollama is set, use Ollama
+	if os.Getenv("QQMD_PROVIDER") == "ollama" {
 		return NewOllamaProvider(), nil
 	}
 

@@ -17,8 +17,8 @@ func (s *Store) FindDocument(ref string) (*DocumentResult, error) {
 		return s.findByDocid(ref[1:])
 	}
 
-	// Try virtual path (qmd://collection/path)
-	if strings.HasPrefix(ref, "qmd://") {
+	// Try virtual path (qqmd://collection/path)
+	if strings.HasPrefix(ref, "qqmd://") {
 		return s.findByVirtualPath(ref)
 	}
 
@@ -54,8 +54,8 @@ func (s *Store) findByDocid(prefix string) (*DocumentResult, error) {
 }
 
 func (s *Store) findByVirtualPath(vpath string) (*DocumentResult, error) {
-	// Parse qmd://collection/path
-	rest := strings.TrimPrefix(vpath, "qmd://")
+	// Parse qqmd://collection/path
+	rest := strings.TrimPrefix(vpath, "qqmd://")
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid virtual path: %s", vpath)

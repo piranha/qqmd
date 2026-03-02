@@ -1,5 +1,5 @@
 // Package store provides SQLite-backed document storage with FTS5 full-text search
-// and vector similarity search for qqmd.
+// and vector similarity search for qqmd. Virtual paths use the qqmd:// scheme.
 package store
 
 import (
@@ -53,15 +53,15 @@ func (d *DocumentResult) Docid() string {
 }
 
 func (d *DocumentResult) VirtualPath() string {
-	return "qmd://" + d.Collection + "/" + d.Filepath
+	return "qqmd://" + d.Collection + "/" + d.Filepath
 }
 
 func DefaultDBPath() string {
 	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
-		return filepath.Join(d, "qmd", "index.sqlite")
+		return filepath.Join(d, "qqmd", "index.sqlite")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "qmd", "index.sqlite")
+	return filepath.Join(home, ".cache", "qqmd", "index.sqlite")
 }
 
 func Open(dbPath string) (*Store, error) {
@@ -142,7 +142,7 @@ func ExtractTitle(body, filepath string) string {
 
 // BuildDisplayPath returns collection/filepath as display path.
 func BuildDisplayPath(collection, fp string) string {
-	return "qmd://" + collection + "/" + fp
+	return "qqmd://" + collection + "/" + fp
 }
 
 var schemaStatements = []string{

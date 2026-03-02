@@ -17,7 +17,7 @@ var contextCmd = &cobra.Command{
 var contextAddCmd = &cobra.Command{
 	Use:   "add <path> <description>",
 	Short: "Add context description for a path",
-	Long:  "Add a context description using a virtual path (qmd://collection/path) or collection path pair.",
+	Long:  "Add a context description using a virtual path (qqmd://collection/path) or collection path pair.",
 	Args:  cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		path := args[0]
@@ -25,7 +25,7 @@ var contextAddCmd = &cobra.Command{
 
 		collection, pathPrefix := parseContextPath(path)
 		if collection == "" {
-			fatal("path must use qmd://collection/path format")
+			fatal("path must use qqmd://collection/path format")
 		}
 
 		if err := config.AddContext(collection, pathPrefix, desc); err != nil {
@@ -74,8 +74,8 @@ var contextRemoveCmd = &cobra.Command{
 }
 
 func parseContextPath(path string) (collection, pathPrefix string) {
-	if strings.HasPrefix(path, "qmd://") {
-		rest := strings.TrimPrefix(path, "qmd://")
+	if strings.HasPrefix(path, "qqmd://") {
+		rest := strings.TrimPrefix(path, "qqmd://")
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) == 2 {
 			return parts[0], "/" + parts[1]

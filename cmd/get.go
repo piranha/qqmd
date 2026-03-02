@@ -12,7 +12,7 @@ import (
 var getCmd = &cobra.Command{
 	Use:   "get <file>",
 	Short: "Retrieve a document by path, virtual path, or docid",
-	Long:  "Retrieve a document by filepath, virtual path (qmd://collection/path), or docid (#hash).\nOptionally specify line range with --from and -l flags.",
+	Long:  "Retrieve a document by filepath, virtual path (qqmd://collection/path), or docid (#hash).\nOptionally specify line range with --from and -l flags.",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		s, err := openStore()

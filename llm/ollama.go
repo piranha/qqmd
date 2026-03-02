@@ -24,11 +24,11 @@ func NewOllamaProvider() *OllamaProvider {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
-	embedModel := os.Getenv("QMD_EMBED_MODEL")
+	embedModel := os.Getenv("QQMD_EMBED_MODEL")
 	if embedModel == "" {
 		embedModel = "nomic-embed-text"
 	}
-	chatModel := os.Getenv("QMD_CHAT_MODEL")
+	chatModel := os.Getenv("QQMD_CHAT_MODEL")
 	if chatModel == "" {
 		chatModel = "qwen3:0.6b"
 	}

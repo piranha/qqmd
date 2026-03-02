@@ -28,7 +28,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "qqmd",
 	Short: "On-device search engine for markdown files",
-	Long:  "qqmd indexes markdown files and provides full-text, vector, and hybrid search. Reimplementation of tobi/qmd in Go.",
+	Long:  "qqmd indexes markdown files and provides full-text, vector, and hybrid search.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		if indexName != "" {
 			config.SetIndexName(indexName)

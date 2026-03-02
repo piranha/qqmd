@@ -1,28 +1,30 @@
-// Package config manages YAML-based collection configuration for qqmd.
-// Config is stored at ~/.config/qmd/{indexName}.yml (respects XDG_CONFIG_HOME).
+// Package config manages KDL-based collection configuration for qqmd.
+// Config is stored at ~/.config/qqmd/{indexName}.kdl (respects XDG_CONFIG_HOME).
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	kdl "github.com/sblinch/kdl-go"
+	"github.com/sblinch/kdl-go/document"
 )
 
 type Collection struct {
-	Path             string            `yaml:"path"`
-	Pattern          string            `yaml:"pattern"`
-	Context          map[string]string `yaml:"context,omitempty"`
-	Update           string            `yaml:"update,omitempty"`
-	IncludeByDefault *bool             `yaml:"includeByDefault,omitempty"`
+	Path             string
+	Pattern          string
+	Context          map[string]string
+	Update           string
+	IncludeByDefault *bool
 }
 
 type Config struct {
-	GlobalContext string                `yaml:"global_context,omitempty"`
-	Collections   map[string]Collection `yaml:"collections"`
+	GlobalContext string
+	Collections   map[string]Collection
 }
 
 type NamedCollection struct {
@@ -44,18 +46,139 @@ func SetIndexName(name string) {
 }
 
 func configDir() string {
-	if d := os.Getenv("QMD_CONFIG_DIR"); d != "" {
+	if d := os.Getenv("QQMD_CONFIG_DIR"); d != "" {
 		return d
 	}
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-		return filepath.Join(d, "qmd")
+		return filepath.Join(d, "qqmd")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "qmd")
+	return filepath.Join(home, ".config", "qqmd")
 }
 
 func ConfigPath() string {
-	return filepath.Join(configDir(), indexName+".yml")
+	return filepath.Join(configDir(), indexName+".kdl")
+}
+
+func newNode(name string) *document.Node {
+	n := document.NewNode()
+	n.SetName(name)
+	return n
+}
+
+// marshalConfig converts a Config to a KDL document.
+func marshalConfig(cfg *Config) ([]byte, error) {
+	doc := document.New()
+
+	if cfg.GlobalContext != "" {
+		n := newNode("global-context")
+		n.AddArgument(cfg.GlobalContext, "")
+		doc.AddNode(n)
+	}
+
+	for name, coll := range cfg.Collections {
+		n := newNode("collection")
+		n.AddArgument(name, "")
+
+		pathNode := newNode("path")
+		pathNode.AddArgument(coll.Path, "")
+		n.AddNode(pathNode)
+
+		patternNode := newNode("pattern")
+		patternNode.AddArgument(coll.Pattern, "")
+		n.AddNode(patternNode)
+
+		if coll.Update != "" {
+			updateNode := newNode("update")
+			updateNode.AddArgument(coll.Update, "")
+			n.AddNode(updateNode)
+		}
+
+		if coll.IncludeByDefault != nil {
+			inclNode := newNode("include-by-default")
+			inclNode.AddArgument(*coll.IncludeByDefault, "")
+			n.AddNode(inclNode)
+		}
+
+		for path, desc := range coll.Context {
+			ctxNode := newNode("context")
+			ctxNode.AddArgument(path, "")
+			ctxNode.AddArgument(desc, "")
+			n.AddNode(ctxNode)
+		}
+
+		doc.AddNode(n)
+	}
+
+	var buf bytes.Buffer
+	if err := kdl.Generate(doc, &buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// unmarshalConfig parses a KDL document into a Config.
+func unmarshalConfig(data []byte) (*Config, error) {
+	doc, err := kdl.Parse(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &Config{
+		Collections: make(map[string]Collection),
+	}
+
+	for _, node := range doc.Nodes {
+		switch node.Name.String() {
+		case "global-context":
+			if len(node.Arguments) > 0 {
+				cfg.GlobalContext = fmt.Sprintf("%v", node.Arguments[0].Value)
+			}
+		case "collection":
+			if len(node.Arguments) == 0 {
+				continue
+			}
+			name := fmt.Sprintf("%v", node.Arguments[0].Value)
+			coll := Collection{
+				Context: make(map[string]string),
+			}
+			for _, child := range node.Children {
+				switch child.Name.String() {
+				case "path":
+					if len(child.Arguments) > 0 {
+						coll.Path = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				case "pattern":
+					if len(child.Arguments) > 0 {
+						coll.Pattern = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				case "update":
+					if len(child.Arguments) > 0 {
+						coll.Update = fmt.Sprintf("%v", child.Arguments[0].Value)
+					}
+				case "include-by-default":
+					if len(child.Arguments) > 0 {
+						v, ok := child.Arguments[0].Value.(bool)
+						if ok {
+							coll.IncludeByDefault = &v
+						}
+					}
+				case "context":
+					if len(child.Arguments) >= 2 {
+						path := fmt.Sprintf("%v", child.Arguments[0].Value)
+						desc := fmt.Sprintf("%v", child.Arguments[1].Value)
+						coll.Context[path] = desc
+					}
+				}
+			}
+			if len(coll.Context) == 0 {
+				coll.Context = nil
+			}
+			cfg.Collections[name] = coll
+		}
+	}
+
+	return cfg, nil
 }
 
 func LoadConfig() (*Config, error) {
@@ -67,14 +190,14 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	cfg, err := unmarshalConfig(data)
+	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if cfg.Collections == nil {
 		cfg.Collections = make(map[string]Collection)
 	}
-	return &cfg, nil
+	return cfg, nil
 }
 
 func SaveConfig(cfg *Config) error {
@@ -82,7 +205,7 @@ func SaveConfig(cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(cfg)
+	data, err := marshalConfig(cfg)
 	if err != nil {
 		return err
 	}
